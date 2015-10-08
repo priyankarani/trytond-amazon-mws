@@ -34,5 +34,18 @@
             <field name="name">wizard_check_amazon_settings_view_form</field>
         </record>
 
+        <record model="ir.cron" id="cron_export_order_status">
+            <field name="name">Export Order Status To Amazon</field>
+            <field name="request_user" ref="res.user_admin"/>
+            <field name="user" ref="res.user_trigger"/>
+            <field name="active" eval="True"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="number_calls">-1</field>
+            <field name="repeat_missed" eval="False"/>
+            <field name="model">stock.shipment.out</field>
+            <field name="function">export_shipment_status_to_amazon</field>
+        </record>
+
     </data>
 </tryton>
