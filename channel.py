@@ -295,6 +295,23 @@ class SaleChannel:
 
         return envelope_xml
 
+    def export_order_status(self):
+        """
+        Export order status to the Amazon MWS
+        """
+        if self.source != 'amazon_mws':
+            return super(SaleChannel, self).export_order_status()
+
+        ShipmentOut = Pool().get('stock.shipment.out')
+
+        shipments = ShipmentOut.search([
+            ('state', '!=', 'done'),
+            ('moves.origin.sale.channel.source', '!=', 'amazon_mws'),
+        ])
+
+        for shipment in shipments:
+            shipment.export_shipment_status_to_amazon()
+
     def export_product_catalog(self):
         """
         Export the products to the Amazon account in context
