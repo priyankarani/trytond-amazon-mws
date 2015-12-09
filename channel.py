@@ -3,12 +3,15 @@
     channle.py
 
 """
+import time
+import unicodecsv as csv
 import logging
 from datetime import datetime
 from mws import mws
 from lxml import etree
 from lxml.builder import E
 from dateutil.relativedelta import relativedelta
+from StringIO import StringIO
 
 from trytond.model import ModelView, fields
 from trytond.wizard import Wizard, StateView, Button
@@ -107,6 +110,18 @@ class SaleChannel:
         :return: mws api instance
         """
         return mws.MWS(
+            access_key=self.amazon_access_key,
+            secret_key=self.amazon_secret_key,
+            account_id=self.amazon_merchant_id,
+        )
+
+    def get_mws_report_api(self):
+        """
+        Create an instance of Report api
+
+        :return: report api instance
+        """
+        return mws.Reports(
             access_key=self.amazon_access_key,
             secret_key=self.amazon_secret_key,
             account_id=self.amazon_merchant_id,
@@ -458,6 +473,45 @@ class SaleChannel:
         )
 
         return len(pricing_xml)
+
+    def import_products(self):
+        """
+        Import all products for this amazon channel
+        Downstream implementation for channel.import_products
+        """
+        if self.source != 'amazon_mws':
+            return super(SaleChannel, self).import_products()
+
+        report_api = self.get_mws_report_api()
+
+        # Request report for active listings
+        request_report = report_api.request_report(
+            '_GET_MERCHANT_LISTINGS_DATA_LITER_'
+        ).parsed
+
+        # It takes 45 seconds for report to be generated
+        time.sleep(45)
+
+        request_list = report_api.get_report_request_list(
+            [request_report['ReportRequestInfo']['ReportRequestId']['value']]
+        ).parsed
+
+        report = report_api.get_report(
+            request_list['ReportRequestInfo']['GeneratedReportId']['value']
+        ).parsed
+
+        # Fetch skus from csv report file
+        skus = [
+            row['seller-sku'] for row in csv.DictReader(
+                StringIO(report), delimiter='\t'
+            )
+        ]
+
+        products = []
+        for sku in skus:
+            products.append(self.import_product(sku))
+
+        return products
 
     def import_product(self, sku):
         """
