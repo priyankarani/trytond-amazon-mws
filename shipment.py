@@ -6,10 +6,38 @@ from collections import defaultdict
 from lxml.builder import E
 from lxml import etree
 from trytond.pool import PoolMeta, Pool
+from trytond.pyson import Eval
+from trytond.model import fields
 
 
-__all__ = ['ShipmentOut']
+__all__ = ['ShipmentOut', 'StockLocation']
 __metaclass__ = PoolMeta
+
+
+class StockLocation:
+    __name__ = 'stock.location'
+
+    # This field is added so we can have sku of the product (fullfilled by
+    # amazon) while sending product info to amazon network
+    channel = fields.Many2One(
+        "sale.channel", "Channel", states={
+            'required': Eval('subtype') == 'fba',
+            'invisible': Eval('subtype') != 'fba',
+        }, domain=[('source', '=', 'amazon_mws')],
+        depends=['subtype']
+    )
+
+    @classmethod
+    def __setup__(cls):
+        """
+        Setup the class before adding to pool
+        """
+        super(StockLocation, cls).__setup__()
+
+        fba = ('fba', 'Fullfilled By Amazon')
+
+        if fba not in cls.subtype.selection:
+            cls.subtype.selection.append(fba)
 
 
 class ShipmentOut:
