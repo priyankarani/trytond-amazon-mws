@@ -15,6 +15,7 @@ from trytond.wizard import Wizard, StateView, Button
 from trytond.transaction import Transaction
 from trytond.pyson import Eval
 from trytond.pool import Pool, PoolMeta
+from boto.mws import connection
 
 __metaclass__ = PoolMeta
 
@@ -110,6 +111,18 @@ class SaleChannel:
             access_key=self.amazon_access_key,
             secret_key=self.amazon_secret_key,
             account_id=self.amazon_merchant_id,
+        )
+
+    def get_mws_connection_api(self):
+        """
+        Create an instance of mws connection
+
+        :return: mws api instance
+        """
+        return connection.MWSConnection(
+            aws_access_key_id=self.amazon_access_key,
+            aws_secret_access_key=self.amazon_secret_key,
+            Merchant=self.amazon_merchant_id
         )
 
     def get_amazon_order_api(self):

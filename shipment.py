@@ -7,10 +7,10 @@ from lxml.builder import E
 from lxml import etree
 from trytond.pool import PoolMeta, Pool
 from trytond.pyson import Eval
-from trytond.model import fields
+from trytond.model import fields, Workflow
 
 
-__all__ = ['ShipmentOut', 'StockLocation']
+__all__ = ['ShipmentOut', 'StockLocation', 'ShipmentInternal']
 __metaclass__ = PoolMeta
 
 
@@ -128,3 +128,101 @@ class ShipmentOut:
                 feed_type='_POST_ORDER_FULFILLMENT_DATA_',
                 marketplaceids=[sale.channel.amazon_marketplace_id]
             )
+
+
+class ShipmentInternal:
+    "Internal Shipment"
+    __name__ = 'stock.shipment.internal'
+
+    @classmethod
+    @Workflow.transition('assigned')
+    def assign(cls, shipments):
+        """
+        Create inbound shipment for fba products
+        """
+        Listing = Pool().get('product.product.channel_listing')
+
+        for shipment in shipments:
+            to_warehouse = shipment.to_location.parent
+
+            if to_warehouse.subtype != 'fba':
+                continue
+
+            channel = to_warehouse.channel
+
+            channel.validate_amazon_channel()
+
+            mws_connection_api = channel.get_mws_connection_api()
+
+            from_address = shipment.from_location.parent.address
+
+            if not from_address:
+                cls.raise_user_error(
+                    "Warehouse %s must have an address" % (
+                        shipment.to_location.parent.title()
+                    )
+                )
+
+            ship_from_address = from_address.to_fba()
+
+            fba_moves = []
+            for move in shipment.moves:
+                listings = Listing.search([
+                    ('product', '=', move.product.id),
+                    ('channel', '=', channel.id)
+                ], limit=1)
+                if not listings:
+                    cls.raise_user_error(
+                        "Product %s is not listed on amazon" % (
+                            move.product.rec_name
+                        )
+                    )
+                listing, = listings
+                if listing.fba_code:
+                    fba_moves.append((listing.fba_code, move.quantity))
+
+            request_items = dict(Member=[{
+                'SellerSKU': sku,
+                'Quantity': str(int(qty)),
+            } for sku, qty in fba_moves])
+
+            if not request_items:
+                return
+
+            # Create Inbond shipment plan, that would return info
+            # required to create inbound shipment
+            try:
+                plan_response = mws_connection_api.create_inbound_shipment_plan(
+                    ShipFromAddress=ship_from_address,
+                    InboundShipmentPlanRequestItems=request_items
+                )
+            except Exception, e:  # XXX: Handle InvalidRequestException
+                cls.raise_user_error(e.message)
+
+            for plan in plan_response.CreateInboundShipmentPlanResult.InboundShipmentPlans:  # noqa
+                shipment_header = {
+                    'ShipmentName': '-'.join(
+                        [shipment.rec_name, plan.ShipmentId]
+                    ),
+                    'ShipFromAddress': ship_from_address,
+                    'DestinationFulfillmentCenterId':
+                        plan.DestinationFulfillmentCenterId,
+                    'LabelPrepPreference': plan.LabelPrepType,
+                    'ShipmentStatus': 'WORKING',
+                }
+                shipment_items = dict(Member=[{
+                    'SellerSKU': item.SellerSKU,
+                    'QuantityShipped': item.Quantity,
+                } for item in plan.Items])
+
+                # Create inbound shipment for each item
+                try:
+                    mws_connection_api.create_inbound_shipment(
+                        ShipmentId=plan.ShipmentId,
+                        InboundShipmentHeader=shipment_header,
+                        InboundShipmentItems=shipment_items
+                    )
+                except Exception, e:  # XXX: Handle InvalidRequestException
+                    cls.raise_user_error(e.message)
+
+        return super(ShipmentInternal, cls).assign(shipments)

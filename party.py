@@ -100,6 +100,23 @@ class Address:
     "Address"
     __name__ = 'party.address'
 
+    def to_fba(self):
+        """
+        Returns address info as a dict, required to pass while creating
+        inbound shipment for FBA products
+        """
+        return {
+            'PostalCode': self.zip,
+            'Name': self.name,
+            'CountryCode': self.country and self.country.code or None,
+            'StateOrProvinceCode': (
+                self.subdivision and self.subdivision.code.split('-')[-1]
+                or None
+            ),
+            'AddressLine1': self.street,
+            'City': self.city,
+        }
+
     def is_match_found(self, amazon_address):
         """
         Match the current address with the address fetched from amazon.

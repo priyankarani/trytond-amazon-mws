@@ -5,6 +5,6 @@
             <field name="model">stock.location</field>
             <field name="inherit" ref="stock.location_view_form"/>
             <field name="name">stock_location_form</field>
-          </record>
+        </record>
     </data>
 </tryton>
