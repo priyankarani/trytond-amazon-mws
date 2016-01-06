@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+
+<tree string="Inbound Shipment Moves">
+    <field name="name"/>
+    <field name="destination_center"/>
+    <field name="label_prep_type"/>
+    <field name="shipment_id"/>
+    <field name="to_address"/>
+</tree>

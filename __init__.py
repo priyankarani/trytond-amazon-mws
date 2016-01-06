@@ -17,7 +17,10 @@ from product import (
 from sale import Sale
 from party import Party, Address
 from country import Subdivision
-from shipment import ShipmentOut, StockLocation, ShipmentInternal
+from shipment import (
+    ShipmentOut, StockLocation, ShipmentInternal, MWSInboundShipment,
+    MWSMoves
+)
 
 
 def register():
@@ -39,6 +42,8 @@ def register():
         ShipmentOut,
         StockLocation,
         ShipmentInternal,
+        MWSInboundShipment,
+        MWSMoves,
         module='amazon_mws', type_='model'
     )
     Pool.register(

@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+
+<form string="Inbound Shipment Moves">
+    <label name="name"/>
+    <field name="name"/>
+    <label name="to_address"/>
+    <field name="to_address"/>
+    <label name="destination_center"/>
+    <field name="destination_center"/>
+    <label name="label_prep_type"/>
+    <field name="label_prep_type"/>
+    <label name="shipment_id"/>
+    <field name="shipment_id"/>
+    <field name="moves" colspan="4"/>
+</form>

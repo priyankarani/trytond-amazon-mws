@@ -7,10 +7,13 @@ from lxml.builder import E
 from lxml import etree
 from trytond.pool import PoolMeta, Pool
 from trytond.pyson import Eval
-from trytond.model import fields, Workflow
+from trytond.model import fields, Workflow, ModelSQL, ModelView
 
 
-__all__ = ['ShipmentOut', 'StockLocation', 'ShipmentInternal']
+__all__ = [
+    'ShipmentOut', 'StockLocation', 'ShipmentInternal',
+    'MWSInboundShipment', 'MWSMoves'
+]
 __metaclass__ = PoolMeta
 
 
@@ -134,6 +137,25 @@ class ShipmentInternal:
     "Internal Shipment"
     __name__ = 'stock.shipment.internal'
 
+    mws_inbound_shipments = fields.One2Many(
+        "stock.mws.inbound_shipment", "shipment",
+        "MWS Inbound Shipments", readonly=True,
+        states={
+            'invisible': Eval('channel_source') != 'amazon_mws'
+        }, depends=['channel_source']
+    )
+
+    channel_source = fields.Function(
+        fields.Char("Channel Source"), "on_change_with_channel_source"
+    )
+
+    @fields.depends('to_location')
+    def on_change_with_channel_source(self, name=None):
+        return (
+            self.to_location.parent.channel and
+            self.to_location.parent.channel.source or None
+        )
+
     @classmethod
     @Workflow.transition('assigned')
     def assign(cls, shipments):
@@ -141,6 +163,7 @@ class ShipmentInternal:
         Create inbound shipment for fba products
         """
         Listing = Pool().get('product.product.channel_listing')
+        InboundShipmentPlan = Pool().get('stock.mws.inbound_shipment')
 
         for shipment in shipments:
             to_warehouse = shipment.to_location.parent
@@ -200,20 +223,38 @@ class ShipmentInternal:
                 cls.raise_user_error(e.message)
 
             for plan in plan_response.CreateInboundShipmentPlanResult.InboundShipmentPlans:  # noqa
-                shipment_header = {
-                    'ShipmentName': '-'.join(
+
+                inbound_shipment, = InboundShipmentPlan.create([{
+                    'name': '-'.join(
                         [shipment.rec_name, plan.ShipmentId]
                     ),
+                    'shipment_id': plan.ShipmentId,
+                    'shipment': shipment.id,
+                    'destination_center': plan.DestinationFulfillmentCenterId,
+                    'label_prep_type': plan.LabelPrepType,
+                    'to_address': cls.find_or_create_address_using_fba_data(
+                        plan.ShipToAddress
+                    ),
+                    'moves': [
+                        ('create', [{
+                            'seller_sku': item.SellerSKU,
+                            'fn_sku': item.FulfillmentNetworkSKU,
+                            'quantity': int(item.Quantity),
+                        } for item in plan.Items])
+                    ]
+                }])
+                shipment_header = {
+                    'ShipmentName': inbound_shipment.name,
                     'ShipFromAddress': ship_from_address,
                     'DestinationFulfillmentCenterId':
-                        plan.DestinationFulfillmentCenterId,
-                    'LabelPrepPreference': plan.LabelPrepType,
+                        inbound_shipment.destination_center,
+                    'LabelPrepPreference': inbound_shipment.label_prep_type,
                     'ShipmentStatus': 'WORKING',
                 }
                 shipment_items = dict(Member=[{
-                    'SellerSKU': item.SellerSKU,
-                    'QuantityShipped': item.Quantity,
-                } for item in plan.Items])
+                    'SellerSKU': move.seller_sku,
+                    'QuantityShipped': str(move.quantity),
+                } for move in inbound_shipment.moves])
 
                 # Create inbound shipment for each item
                 try:
@@ -226,3 +267,93 @@ class ShipmentInternal:
                     cls.raise_user_error(e.message)
 
         return super(ShipmentInternal, cls).assign(shipments)
+
+    @classmethod
+    def find_or_create_address_using_fba_data(cls, amazon_address):
+        Address = Pool().get('party.address')
+
+        fba_address = cls.get_address_using_fba_data(amazon_address)
+
+        addresses = Address.search([
+            ('name', '=', amazon_address.Name)
+        ])
+
+        if addresses and addresses[0].is_match_found(fba_address):
+            return addresses[0]
+
+        fba_address.save()
+        return fba_address
+
+    @classmethod
+    def get_address_using_fba_data(cls, amazon_address):
+        """
+        Create address for fba data returned by amazon fullfillment network
+        """
+        Party = Pool().get('party.party')
+        Country = Pool().get('country.country')
+        Subdivision = Pool().get('country.subdivision')
+        Address = Pool().get('party.address')
+
+        party = Party()
+        party.name = amazon_address.Name
+        party.save()
+
+        country, = Country.search([
+            ('code', '=', amazon_address.CountryCode)
+        ], limit=1)
+        subdivision = Subdivision.search_using_amazon_state(
+            amazon_address.StateOrProvinceCode, country
+        )
+
+        return Address(
+            party=party.id,
+            name=amazon_address.Name,
+            street=amazon_address.AddressLine1,
+            zip=amazon_address.PostalCode,
+            city=amazon_address.City,
+            country=country.id,
+            streetbis=None,
+            subdivision=subdivision and subdivision.id or None,
+        )
+
+
+class MWSInboundShipment(ModelSQL, ModelView):
+    "MWS Inbound Shipment"
+    __name__ = 'stock.mws.inbound_shipment'
+
+    name = fields.Char("Name", required=True, readonly=True)
+    destination_center = fields.Char(
+        'Destination Center', required=True, readonly=True
+    )
+    label_prep_type = fields.Selection([
+        ('NO_LABEL', 'NO LABEL'),
+        ('SELLER_LABEL', 'SELLER LABEL'),
+        ('AMAZON_LABEL', 'AMAZON LABEL'),
+    ], 'Label Preparation Type', required=True, readonly=True)
+    shipment_id = fields.Char(
+        "Shipment ID", required=True, select=True, readonly=True
+    )
+    shipment = fields.Many2One(
+        "stock.shipment.internal", "Shipment", required=True, readonly=True
+    )
+    to_address = fields.Many2One("party.address", "To Address")
+    moves = fields.One2Many(
+        "stock.mws.move", "inbound_shipment", "Moves", readonly=True
+    )
+
+
+class MWSMoves(ModelSQL, ModelView):
+    "MWS Moves"
+    __name__ = 'stock.mws.move'
+
+    inbound_shipment = fields.Many2One(
+        "stock.mws.inbound_shipment", "Inbound Shipment",
+        required=True, select=True, readonly=True
+    )
+    seller_sku = fields.Char(
+        "Seller SKU", required=True, select=True, readonly=True
+    )
+    fn_sku = fields.Char(
+        "Fullfillment Network SKU", required=True, readonly=True
+    )
+    quantity = fields.Integer("Quantity", required=True, readonly=True)

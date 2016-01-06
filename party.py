@@ -136,6 +136,24 @@ class Address:
             self.subdivision == amazon_address.subdivision,
         ])
 
+    def is_fba_match_found(self, amazon_address):
+        """
+        Match the current address with the address fetched from amazon.
+        Match all the fields of the address, i.e., streets, city, subdivision
+        and country. For any deviation in any field, returns False.
+
+        :param amazon_address: Amazon address instance
+        :return: True if address matches else False
+        """
+        return all([
+            self.name == amazon_address.name,
+            self.street == amazon_address.street,
+            self.zip == amazon_address.zip,
+            self.city == amazon_address.city,
+            self.country == amazon_address.country,
+            self.subdivision == amazon_address.subdivision,
+        ])
+
     @classmethod
     def find_or_create_for_party_using_amazon_data(cls, party, address_data):
         """

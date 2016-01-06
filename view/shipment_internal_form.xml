@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+
+<data>
+    <xpath expr="//field[@name='moves']" position="after">
+        <field name="mws_inbound_shipments" colspan="4"/>
+    </xpath>
+</data>

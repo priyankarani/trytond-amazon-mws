@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+
+<tree string="Inbound Shipment Moves">
+    <field name="seller_sku"/>
+    <field name="fn_sku"/>
+    <field name="quantity"/>
+</tree>
